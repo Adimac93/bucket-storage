@@ -1,6 +1,8 @@
 use axum::extract::{FromRef, FromRequestParts, Multipart, Path, State};
 use axum::{async_trait, debug_handler, Json, Router, TypedHeader};
 use axum::body::{Body, StreamBody};
+use axum::http::header::CONTENT_TYPE;
+use axum::http::HeaderMap;
 use axum::http::request::Parts;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -17,7 +19,7 @@ use tokio_util::io::{ReaderStream, StreamReader};
 use tracing::debug;
 use uuid::Uuid;
 use crate::AppState;
-use crate::auth::{Claims, Credentials, get_auth_parts, verify_credentials};
+use crate::auth::{ArgonHash, Claims, Credentials, get_auth_parts, verify_credentials};
 use crate::errors::AppError;
 
 pub fn auth_router() -> Router<AppState> {
@@ -50,7 +52,7 @@ async fn issue_key(State(pool): State<PgPool>) -> Result<impl IntoResponse, AppE
     INSERT INTO bucket_keys (key, bucket_id)
     VALUES ($1, $2)
     RETURNING id
-    "#, key, bucket_id).fetch_one(&pool).await?.id;
+    "#, ArgonHash::hash(&key)?, bucket_id).fetch_one(&pool).await?.id;
 
     Ok(Json(json!({"keyId": key_id, "key": key})))
 }
@@ -67,13 +69,14 @@ async fn download(claims: Claims, State(pool): State<PgPool>, Path(file_id): Pat
     let file = File::open(format!("./store/{}/{file_id}.png", claims.bucket_id)).await.unwrap();
     let stream = ReaderStream::new(file);
     let body = StreamBody::new(stream);
-
-    Ok(body)
+    let mut headers = HeaderMap::new();
+    headers.append(CONTENT_TYPE, "Image/png".parse().unwrap());
+    Ok((headers, body))
 }
 
 
 #[debug_handler]
-async fn upload(claims: Claims, State(pool): State<PgPool>, mut multipart: Multipart) -> Result<impl IntoResponse, AppError> {
+async fn upload(claims: Claims, State(pool): State<PgPool>, mut multipart: Multipart) -> Result<Json<Vec<Uuid>>, AppError> {
     let mut file_ids = Vec::new();
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = if let Some(filename) = field.file_name() {
@@ -98,7 +101,7 @@ async fn upload(claims: Claims, State(pool): State<PgPool>, mut multipart: Multi
         if let Some(file) = file {
             debug!("Matching file checksum");
             file_ids.push(file.id);
-            return Ok(());
+            continue
         }
 
         let file_id = query!(r#"
@@ -111,6 +114,6 @@ async fn upload(claims: Claims, State(pool): State<PgPool>, mut multipart: Multi
 
         file_ids.push(file_id);
     }
-    println!("{file_ids:#?}");
-    Ok(())
+    debug!("{file_ids:#?}");
+    Ok(Json(file_ids))
 }

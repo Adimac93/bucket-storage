@@ -34,22 +34,18 @@ impl <S>FromRequestParts<S> for Claims
     }
 }
 
-pub struct ArgonHash (String);
+pub struct ArgonHash;
 
 impl ArgonHash {
-    pub fn new(password: String) -> Self {
-        Self(password)
-    }
-
-    pub fn hash(self) -> anyhow::Result<String> {
+    pub fn hash(input: &str) -> anyhow::Result<String> {
         let salt = SaltString::generate(thread_rng());
-        let hash = Argon2::default().hash_password(self.0.as_bytes(), &salt).map_err(|e| anyhow!("Failed to hash password: {e}"))?;
+        let hash = Argon2::default().hash_password(input.as_bytes(), &salt).map_err(|e| anyhow!("Failed to hash password: {e}"))?;
         Ok(hash.to_string())
     }
 
-    pub fn verify(self, hash: String) -> anyhow::Result<bool> {
-        let hash = PasswordHash::new(&hash).map_err(|e| anyhow!("Invalid password hash: {e}"))?;
-        let res = Argon2::default().verify_password(self.0.as_bytes(), &hash);
+    pub fn verify(input: &str, hash: &str) -> anyhow::Result<bool> {
+        let hash = PasswordHash::new(hash).map_err(|e| anyhow!("Invalid password hash: {e}"))?;
+        let res = Argon2::default().verify_password(input.as_bytes(), &hash);
         match res {
             Ok(()) => Ok(true),
             Err(password_hash::Error::Password) => Ok(false),
@@ -71,7 +67,6 @@ impl Credentials {
 }
 
 pub async fn verify_credentials(pool: &PgPool, credentials: &Credentials) -> Result<Uuid, AppError> {
-    println!("{credentials:#?}");
     let rec = query!(r#"
     SELECT *
     FROM bucket_keys
@@ -79,7 +74,7 @@ pub async fn verify_credentials(pool: &PgPool, credentials: &Credentials) -> Res
     "#, credentials.key_id).fetch_optional(pool).await?;
 
     if let Some(rec) = rec {
-        let is_correct = ArgonHash::new(credentials.key.to_string()).verify(rec.key.to_string())?;
+        let is_correct = ArgonHash::verify(&credentials.key, &rec.key)?;
         if is_correct {
             return Ok(rec.bucket_id);
         }
@@ -95,7 +90,6 @@ pub async fn get_auth_parts(parts: &mut Parts) -> Result<Credentials, AppError>{
     match split {
         Some((name, contents)) if name == "Basic" => {
             Ok(decode(contents)?)
-
         }
         _ => Err(AppError::Expected {code: StatusCode::BAD_REQUEST, message: "`Authorization` header must be for basic authentication"})
     }
