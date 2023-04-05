@@ -5,6 +5,7 @@ use axum::http::request::Parts;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use reqwest::{header, StatusCode};
+use serde_json::json;
 use sha1::{Sha1, Digest};
 use sha1::digest::FixedOutput;
 use sqlx::{PgPool, query};
@@ -16,13 +17,42 @@ use tokio_util::io::{ReaderStream, StreamReader};
 use tracing::debug;
 use uuid::Uuid;
 use crate::AppState;
-use crate::auth::{Credentials, get_auth_parts, verify_credentials};
+use crate::auth::{Claims, Credentials, get_auth_parts, verify_credentials};
 use crate::errors::AppError;
 
 pub fn auth_router() -> Router<AppState> {
     Router::new()
+        .route("/key", get(issue_key))
         .route("/download/:file_id", get(download))
         .route("/upload", post(upload))
+}
+
+struct KeyIssue {
+    bucket_name: String
+}
+
+struct KeyParts {
+    key_id: Uuid,
+    key: String,
+
+}
+
+async fn issue_key(State(pool): State<PgPool>) -> Result<impl IntoResponse, AppError> {
+    let bucket_name = "bucket";
+    let bucket_id = query!(r#"
+    INSERT INTO buckets (name)
+    VALUES ($1)
+    RETURNING id
+    "#, bucket_name).fetch_one(&pool).await?.id;
+
+    let key = Uuid::new_v4().to_string();
+    let key_id = query!(r#"
+    INSERT INTO bucket_keys (key, bucket_id)
+    VALUES ($1, $2)
+    RETURNING id
+    "#, key, bucket_id).fetch_one(&pool).await?.id;
+
+    Ok(Json(json!({"keyId": key_id, "key": key})))
 }
 
 #[debug_handler]
@@ -83,24 +113,4 @@ async fn upload(claims: Claims, State(pool): State<PgPool>, mut multipart: Multi
     }
     println!("{file_ids:#?}");
     Ok(())
-}
-
-struct Claims {
-    key_id: Uuid,
-    bucket_id: Uuid
-}
-
-#[async_trait]
-impl <S>FromRequestParts<S> for Claims
-    where S: Send + Sync, PgPool: FromRef<S>
-{
-    type Rejection = AppError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let pool = PgPool::from_ref(state);
-        let credentials = get_auth_parts(parts).await?;
-        let bucket_id = verify_credentials(&pool, &credentials).await?;
-
-        Ok(Self { key_id: credentials.key_id, bucket_id})
-    }
 }

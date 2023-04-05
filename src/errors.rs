@@ -31,7 +31,7 @@ impl IntoResponse for AppError {
                 "Unexpected server error".to_string()
             }
             AppError::Expected {code, message} => {
-                error!("{} {code}: {message}", code.as_u16());
+                error!("{code}: {message}");
                 self.to_string()
             }
         };

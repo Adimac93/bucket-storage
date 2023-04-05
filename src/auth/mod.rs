@@ -1,20 +1,38 @@
-use std::str::FromStr;
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 use argon2::password_hash::{Salt, SaltString};
 use argon2::{Argon2, password_hash, PasswordHash, PasswordHasher, PasswordVerifier};
-use axum::extract::State;
-use axum::headers::Authorization;
-use axum::headers::authorization::Basic;
+use axum::extract::{FromRef, FromRequestParts, State};
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
-use axum::{Router, TypedHeader};
+use axum::{async_trait, Router, TypedHeader};
 use base64::Engine;
 use rand::thread_rng;
 use sqlx::{PgPool, query};
 use sqlx::types::Uuid;
 use crate::errors::AppError;
 
+
+
+pub struct Claims {
+    pub key_id: Uuid,
+    pub bucket_id: Uuid
+}
+
+#[async_trait]
+impl <S>FromRequestParts<S> for Claims
+    where S: Send + Sync, PgPool: FromRef<S>
+{
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let pool = PgPool::from_ref(state);
+        let credentials = get_auth_parts(parts).await?;
+        let bucket_id = verify_credentials(&pool, &credentials).await?;
+
+        Ok(Self { key_id: credentials.key_id, bucket_id})
+    }
+}
 
 pub struct ArgonHash (String);
 
