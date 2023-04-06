@@ -1,18 +1,18 @@
 use std::env;
 use axum::Router;
 use sqlx::{migrate, PgPool};
-use axum::extract::FromRef;
-mod routes;
-mod state;
+use axum::extract::{DefaultBodyLimit, FromRef};
 pub mod auth;
 pub mod errors;
-mod checksum;
-
+pub mod files;
 
 pub fn app(app_state: AppState) -> Router {
-    Router::new().nest("/",routes::auth_router()).with_state(app_state)
+    Router::new()
+        .merge(auth::router())
+        .merge(files::router())
+        .layer(DefaultBodyLimit::disable())
+        .with_state(app_state)
 }
-
 
 #[derive(FromRef, Clone)]
 pub struct AppState {
@@ -52,3 +52,4 @@ impl TryFrom<String> for Environment {
         }
     }
 }
+

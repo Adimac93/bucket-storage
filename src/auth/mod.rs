@@ -5,14 +5,39 @@ use axum::extract::{FromRef, FromRequestParts, State};
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
-use axum::{async_trait, Router, TypedHeader};
+use axum::{async_trait, Json, Router, TypedHeader};
+use axum::response::IntoResponse;
+use axum::routing::get;
 use base64::Engine;
 use rand::thread_rng;
+use serde_json::json;
 use sqlx::{PgPool, query};
 use sqlx::types::Uuid;
+use crate::AppState;
 use crate::errors::AppError;
 
 
+pub fn router() -> Router<AppState> {
+    Router::new().route("/key", get(issue_key))
+}
+
+async fn issue_key(State(pool): State<PgPool>) -> Result<impl IntoResponse, AppError> {
+    let bucket_name = "bucket";
+    let bucket_id = query!(r#"
+    INSERT INTO buckets (name)
+    VALUES ($1)
+    RETURNING id
+    "#, bucket_name).fetch_one(&pool).await?.id;
+
+    let key = Uuid::new_v4().to_string();
+    let key_id = query!(r#"
+    INSERT INTO bucket_keys (key, bucket_id)
+    VALUES ($1, $2)
+    RETURNING id
+    "#, ArgonHash::hash(&key)?, bucket_id).fetch_one(&pool).await?.id;
+
+    Ok(Json(json!({"keyId": key_id, "key": key})))
+}
 
 pub struct Claims {
     pub key_id: Uuid,
