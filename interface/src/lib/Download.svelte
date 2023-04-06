@@ -1,21 +1,45 @@
 <script lang="ts">
-  import { key } from "./stores";
+    import { fetchAuthorized } from "./api";
 
-  let image;
-  let fileId;
-  async function download() {
-    const encodedKey = btoa(`${$key.keyId}:${$key.key}`);
-    const res = await fetch(`/api/download/${fileId}`, {
-      headers: { Authorization: `Basic ${encodedKey}` },
-    });
+    let loading = false;
+    let image;
+    let fileId;
+    let prompt;
 
-    image = URL.createObjectURL(await res.blob());
-    image;
-  }
+    async function download() {
+        const res = await fetchAuthorized(`/api/download/${fileId}`);
+        try {
+            const contentType = res.headers.get("Content-type").toLocaleLowerCase();
+            if (contentType in ["image/png", "image/jpg"]) {
+            loading = true;
+            image = URL.createObjectURL(await res.blob());
+            loading = false;
+        } else {
+            prompt = "Could not render file"
+            setTimeout(()=>{
+                prompt = null;
+            }, 3000)
+        }
+        } catch (e) {
+            prompt = "Could not determine file type"
+            setTimeout(()=>{
+                prompt = null;
+            }, 3000)
+        }
+
+    }
 </script>
 
-<input type="text" bind:value={fileId} />
-<button on:click={download}>Download</button>
-{#if image}
-  <img src={image} alt="someting" height="auto" width={window.innerWidth / 2} />
-{/if}
+<div>
+    <input type="text" bind:value={fileId} placeholder="file ID"/>
+    <button on:click={download}>Download</button>
+    {#if loading}
+        <p>Loading image</p>
+    {/if}
+    {#if image}
+    <img src={image} alt="someting" height="auto" width={window.innerWidth / 2} />
+    {/if}
+    {#if prompt}
+        <p>{prompt}</p>
+    {/if}
+</div>

@@ -1,15 +1,14 @@
 <script lang="ts">
-    import { key } from "./stores";
+    import { fetchAuthorized } from "./api";
 
     let fileId;
     
     async function deleteFile() {
-        const encodedKey = btoa(`${$key.keyId}:${$key.key}`);
-        const res = fetch(`/api/delete/${fileId}`,{
-            headers: { Authorization: `Basic ${encodedKey}` },
-        })
+        const res = await fetchAuthorized(`/api/delete/${fileId}`)
     }
 </script>
 
-<input type="text" bind:value={fileId}>
-<button on:click={deleteFile}>Remove</button>
+<div>
+    <input type="text" bind:value={fileId} placeholder="file ID"/>
+    <button on:click={deleteFile}>Remove</button>
+</div>

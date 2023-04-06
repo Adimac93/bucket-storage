@@ -47,11 +47,16 @@ async fn download(claims: Claims, State(pool): State<PgPool>, Path(file_id): Pat
     WHERE buckets.id = $1 AND files.id = $2
     "#, claims.bucket_id, file_id).fetch_optional(&pool).await?.ok_or(AppError::Expected {code: StatusCode::NO_CONTENT, message: "File not found"})?;
 
-    let file = Store::new().read(&StoreFile::new(file_id, res.extension)).await.unwrap();
+    let file = Store::new().read(&StoreFile::new(file_id, res.extension.clone())).await.unwrap();
     let stream = ReaderStream::new(file);
     let body = StreamBody::new(stream);
     let mut headers = HeaderMap::new();
-    headers.append(CONTENT_TYPE, "Image/png".parse().unwrap());
+    if let Some(ext) = res.extension {
+        if &ext == "png" || &ext == "jpg" {
+            headers.append(CONTENT_TYPE, format!("image/{ext}").parse().unwrap());
+        }
+    }
+
     Ok((headers, body))
 }
 
