@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use anyhow::anyhow;
 use axum::extract::{FromRef, FromRequestParts, Multipart, Path, State};
-use axum::{async_trait, debug_handler, Json, Router, TypedHeader};
+use axum::{debug_handler, Json, Router, TypedHeader};
 use axum::body::{Body, Bytes, StreamBody};
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderMap, StatusCode};
@@ -13,7 +13,6 @@ use tokio::{fs, io};
 use tokio::fs::{File, write};
 use tokio_util::io::ReaderStream;
 use tracing::debug;
-use tracing_test::traced_test;
 use uuid::Uuid;
 use crate::AppState;
 use crate::auth::{ArgonHash, Claims, Credentials, get_auth_parts, verify_credentials};
@@ -24,17 +23,6 @@ pub fn router() -> Router<AppState> {
         .route("/download/:file_id", get(download))
         .route("/upload", post(upload))
         .route("/delete/:file_id", get(delete))
-}
-
-
-struct KeyIssue {
-    bucket_name: String
-}
-
-struct KeyParts {
-    key_id: Uuid,
-    key: String,
-
 }
 
 #[debug_handler]
@@ -88,7 +76,6 @@ async fn upload(claims: Claims, State(pool): State<PgPool>, mut multipart: Multi
         FROM files
         WHERE checksum = $1
         "#, checksum).fetch_optional(&pool).await?;
-
 
         if let Some(file) = file {
             debug!("Matching file checksum");
