@@ -7,6 +7,7 @@ use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
+use serde::Serialize;
 use sha1::{Sha1, Digest};
 use sqlx::{PgPool, query};
 use tokio::{fs, io};
@@ -21,7 +22,9 @@ use crate::errors::AppError;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/download/:file_id", get(download))
+        .route("/upload/key", get(upload_url))
         .route("/upload", post(upload))
+        .route("/upload/:upload_id", post(upload_with_key))
         .route("/delete/:file_id", get(delete))
 }
 
@@ -49,54 +52,40 @@ async fn download(claims: Claims, State(pool): State<PgPool>, Path(file_id): Pat
 }
 
 
+
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+struct UploadKey {
+    upload_id: Uuid
+}
+
+async fn upload_url(claims: Claims, State(pool): State<PgPool>) -> Result<Json<UploadKey>, AppError>{
+    let upload_id = query!(r#"
+    INSERT INTO upload_keys (bucket_id)
+    VALUES ($1)
+    RETURNING id
+    "#, claims.bucket_id).fetch_one(&pool).await.unwrap().id;
+
+    debug!("Issued new upload id");
+    Ok(Json(UploadKey {upload_id}))
+}
+
+#[debug_handler]
+async fn upload_with_key(State(pool): State<PgPool>, Path(upload_id): Path<Uuid>, multipart: Multipart) -> Result<Json<Vec<Uuid>>, AppError> {
+    let bucket_id = query!(r#"
+    SELECT bucket_id
+    FROM upload_keys
+    WHERE id = $1
+    "#, upload_id).fetch_optional(&pool).await?.ok_or(AppError::Expected {code: StatusCode::BAD_REQUEST, message: "Wrong upload key"})?.bucket_id;
+
+    let file_ids = save_multipart(&pool, multipart, bucket_id).await?;
+    debug!("Uploaded files with upload key");
+    Ok(Json(file_ids))
+}
+
 #[debug_handler]
 async fn upload(claims: Claims, State(pool): State<PgPool>, mut multipart: Multipart) -> Result<Json<Vec<Uuid>>, AppError> {
-    let mut file_ids = Vec::new();
-    while let Some(field) = multipart.next_field().await.unwrap() {
-        let (name, extension) = if let Some(file_name) = field.file_name() {
-            let file_name_parts = file_name.rsplit_once('.');
-            match file_name_parts {
-                None => (file_name.to_string(), None),
-                Some((name,extension)) => (name.to_string(), Some(extension.to_string()))
-            }
-        } else {
-            continue;
-        };
-
-        debug!("file name: {name}, extension: {extension:?}");
-
-        let bytes = field.bytes().await.unwrap();
-        let mut hasher = Sha1::new();
-        hasher.update(bytes.clone());
-        let hash = hasher.finalize();
-        let checksum = format!("{hash:x}");
-
-        let file = query!(r#"
-        SELECT *
-        FROM files
-        WHERE checksum = $1
-        "#, checksum).fetch_optional(&pool).await?;
-
-        if let Some(file) = file {
-            debug!("Matching file checksum");
-            file_ids.push(file.id);
-            continue
-        }
-
-        let file_id = query!(r#"
-        INSERT INTO files (extension, checksum)
-        VALUES ($1, $2)
-        RETURNING id
-        "#, extension, checksum).fetch_optional(&pool).await?.ok_or(AppError::Expected {code: StatusCode::NO_CONTENT, message: "File not found"})?.id;
-        Store::new().save(&StoreFile::new(file_id, extension), bytes).await.unwrap();
-
-        query!(r#"
-        INSERT INTO bucket_files (name, bucket_id, file_id)
-        VALUES ($1, $2, $3)
-        "#, name, claims.bucket_id, file_id).execute(&pool).await?;
-        file_ids.push(file_id);
-    }
-    debug!("{file_ids:#?}");
+    let file_ids = save_multipart(&pool, multipart, claims.bucket_id).await?;
     Ok(Json(file_ids))
 }
 
@@ -192,3 +181,54 @@ impl Store {
     }
 }
 
+async fn save_multipart(pool: &PgPool, mut multipart: Multipart, bucket_id: Uuid) -> Result<Vec<Uuid>, AppError> {
+    let mut transaction = pool.begin().await?;
+    let mut file_ids = Vec::new();
+    while let Some(field) = multipart.next_field().await.unwrap() {
+        let (name, extension) = if let Some(file_name) = field.file_name() {
+            let file_name_parts = file_name.rsplit_once('.');
+            match file_name_parts {
+                None => (file_name.to_string(), None),
+                Some((name,extension)) => (name.to_string(), Some(extension.to_string()))
+            }
+        } else {
+            continue;
+        };
+
+        debug!("file name: {name}, extension: {extension:?}");
+
+        let bytes = field.bytes().await.unwrap();
+        let mut hasher = Sha1::new();
+        hasher.update(bytes.clone());
+        let hash = hasher.finalize();
+        let checksum = format!("{hash:x}");
+
+        let file = query!(r#"
+        SELECT *
+        FROM files
+        WHERE checksum = $1
+        "#, checksum).fetch_optional(&mut transaction).await?;
+
+        if let Some(file) = file {
+            debug!("Matching file checksum");
+            file_ids.push(file.id);
+            continue
+        }
+
+        let file_id = query!(r#"
+        INSERT INTO files (extension, checksum)
+        VALUES ($1, $2)
+        RETURNING id
+        "#, extension, checksum).fetch_optional(&mut transaction).await?.ok_or(AppError::Expected {code: StatusCode::NO_CONTENT, message: "File not found"})?.id;
+        Store::new().save(&StoreFile::new(file_id, extension), bytes).await.unwrap();
+
+        query!(r#"
+        INSERT INTO bucket_files (name, bucket_id, file_id)
+        VALUES ($1, $2, $3)
+        "#, name, bucket_id, file_id).execute(&mut transaction).await?;
+        file_ids.push(file_id);
+    }
+    transaction.commit().await?;
+    debug!("{file_ids:#?}");
+    Ok(file_ids)
+}

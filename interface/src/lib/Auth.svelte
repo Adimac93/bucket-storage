@@ -17,6 +17,6 @@
 <div>
     <button on:click={gen_key}>Issue</button>
     {#if $key}
-        <p>Encoded key: {($key.slice(0,6))}...</p>
+        <p>Encoded auth key: {($key.slice(0,6))}...</p>
     {/if}
 </div>

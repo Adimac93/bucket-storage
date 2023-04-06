@@ -28,3 +28,10 @@ CREATE TABLE bucket_keys (
     PRIMARY KEY (id),
     FOREIGN KEY (bucket_id) REFERENCES buckets(id)
 );
+
+CREATE TABLE upload_keys (
+    id UUID DEFAULT  gen_random_uuid(),
+    bucket_id UUID NOT NULL,
+    PRIMARY KEY (id),
+    FOREIGN KEY (bucket_id) REFERENCES buckets(id)
+)

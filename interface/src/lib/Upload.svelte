@@ -7,7 +7,7 @@
         const formData = new FormData();
         const filesArr = Array.from(files);
         filesArr.forEach(file => {
-            formData.append("aaa", file);
+            formData.append("file", file);
         })
         
         const res = await fetchAuthorized("/api/upload", {
@@ -18,6 +18,7 @@
 </script>
 
 <div>
+    <p>Upload with private API call</p>
     <button on:click={upload} disabled={files === undefined}>Upload</button>
     <input type="file" bind:files />
 </div>
