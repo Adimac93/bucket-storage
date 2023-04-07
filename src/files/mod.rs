@@ -13,7 +13,7 @@ use sqlx::{PgPool, query};
 use tokio::{fs, io};
 use tokio::fs::{File, write};
 use tokio_util::io::ReaderStream;
-use tracing::debug;
+use tracing::{debug, error};
 use uuid::Uuid;
 use crate::AppState;
 use crate::auth::{ArgonHash, Claims, Credentials, get_auth_parts, verify_credentials};
@@ -38,7 +38,7 @@ async fn download(claims: Claims, State(pool): State<PgPool>, Path(file_id): Pat
     WHERE buckets.id = $1 AND files.id = $2
     "#, claims.bucket_id, file_id).fetch_optional(&pool).await?.ok_or(AppError::Expected {code: StatusCode::NO_CONTENT, message: "File not found"})?;
 
-    let file = Store::new().read(&StoreFile::new(file_id, res.extension.clone())).await.unwrap();
+    let file = Store::new().read(&StoreFile::new(file_id, res.extension.clone())).await?;
     let stream = ReaderStream::new(file);
     let body = StreamBody::new(stream);
     let mut headers = HeaderMap::new();
@@ -64,7 +64,7 @@ async fn upload_url(claims: Claims, State(pool): State<PgPool>) -> Result<Json<U
     INSERT INTO upload_keys (bucket_id)
     VALUES ($1)
     RETURNING id
-    "#, claims.bucket_id).fetch_one(&pool).await.unwrap().id;
+    "#, claims.bucket_id).fetch_one(&pool).await?.id;
 
     debug!("Issued new upload id");
     Ok(Json(UploadKey {upload_id}))
@@ -85,6 +85,7 @@ async fn upload_with_key(State(pool): State<PgPool>, Path(upload_id): Path<Uuid>
 
 #[debug_handler]
 async fn upload(claims: Claims, State(pool): State<PgPool>, mut multipart: Multipart) -> Result<Json<Vec<Uuid>>, AppError> {
+    debug!("Received multipart form");
     let file_ids = save_multipart(&pool, multipart, claims.bucket_id).await?;
     Ok(Json(file_ids))
 }
@@ -192,6 +193,7 @@ async fn save_multipart(pool: &PgPool, mut multipart: Multipart, bucket_id: Uuid
                 Some((name,extension)) => (name.to_string(), Some(extension.to_string()))
             }
         } else {
+            error!("Missing file name");
             continue;
         };
 
@@ -220,7 +222,7 @@ async fn save_multipart(pool: &PgPool, mut multipart: Multipart, bucket_id: Uuid
         VALUES ($1, $2)
         RETURNING id
         "#, extension, checksum).fetch_optional(&mut transaction).await?.ok_or(AppError::Expected {code: StatusCode::NO_CONTENT, message: "File not found"})?.id;
-        Store::new().save(&StoreFile::new(file_id, extension), bytes).await.unwrap();
+        Store::new().save(&StoreFile::new(file_id, extension), bytes).await?;
 
         query!(r#"
         INSERT INTO bucket_files (name, bucket_id, file_id)

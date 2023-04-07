@@ -53,3 +53,10 @@ impl From<sqlx::Error> for AppError {
         Self::Unexpected(anyhow::Error::from(e))
     }
 }
+
+impl From<tokio::io::Error> for AppError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Unexpected(anyhow::Error::from(e))
+    }
+}
+
