@@ -32,10 +32,3 @@ async fn a(pool: PgPool) {
     "#).fetch_all(&pool).await.unwrap();
     println!("{a:?}");
 }
-
-// #[traced_test]
-// #[sqlx::test(fixtures("buckets","bucket_keys"))]
-// async fn a(pool: PgPool) {
-//     let h = ArgonHash::new("ee014d6f-5798-44b0-9186-f68f3261146e".into()).hash().unwrap();
-//     debug!("{h}");
-// }

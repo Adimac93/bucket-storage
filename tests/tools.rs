@@ -41,6 +41,13 @@ impl AppData {
     }
 
     pub fn api(&self, uri: &str) -> String {
-        format!("http://{}{uri}", self.addr)
+        let mut url = format!("http://{}", self.addr);
+        if let Some(char) = uri.trim().chars().nth(0) {
+            if char != '/' {
+               url.push('/');
+            }
+            url.push_str(uri);
+        }
+        url
     }
 }
