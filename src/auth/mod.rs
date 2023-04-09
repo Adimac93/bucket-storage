@@ -18,7 +18,13 @@ use crate::errors::AppError;
 
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/key", get(issue_key))
+    Router::new()
+        .route("/key", get(issue_key))
+        .route("/key/verify", get(verify_key))
+}
+
+async fn verify_key(_claims: Claims) -> impl IntoResponse {
+    "Authorized access"
 }
 
 async fn issue_key(State(pool): State<PgPool>) -> Result<impl IntoResponse, AppError> {
@@ -39,7 +45,7 @@ async fn issue_key(State(pool): State<PgPool>) -> Result<impl IntoResponse, AppE
     "#, ArgonHash::hash(&key)?, bucket_id).fetch_one(&mut transaction).await?.id;
 
     transaction.commit().await?;
-    Ok(Json(json!({"keyId": key_id, "key": key})))
+    Ok(Json(json!({"id": key_id, "key": key})))
 }
 
 pub struct Claims {
