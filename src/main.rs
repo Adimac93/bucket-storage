@@ -23,7 +23,7 @@ async fn main() {
     let env = env::var("APP_ENVIRONMENT").expect("APP_ENVIRONMENT var missing");
     let environment = Environment::try_from(env).unwrap();
     let addr = match environment {
-        Environment::Development => SocketAddr::from(([127, 0, 0, 1], 3000)),
+        Environment::Development => SocketAddr::from(([127, 0, 0, 1], 3001)),
         Environment::Production => {
             let port = env::var("PORT").expect("PORT var missing").parse::<u16>().expect("Failed to parse PORT var");
             SocketAddr::from(([0, 0, 0, 0], port)) }

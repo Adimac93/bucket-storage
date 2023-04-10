@@ -2,6 +2,9 @@ use std::env;
 use axum::Router;
 use sqlx::{migrate, PgPool};
 use axum::extract::{DefaultBodyLimit, FromRef};
+use axum::response::IntoResponse;
+use reqwest::StatusCode;
+
 pub mod auth;
 pub mod errors;
 pub mod files;
@@ -10,8 +13,13 @@ pub fn app(app_state: AppState) -> Router {
     Router::new()
         .merge(auth::router())
         .merge(files::router())
+        .fallback(fallback)
         .layer(DefaultBodyLimit::disable())
         .with_state(app_state)
+}
+
+async fn fallback() -> impl IntoResponse {
+    (StatusCode::NOT_FOUND, "Not found")
 }
 
 #[derive(FromRef, Clone)]

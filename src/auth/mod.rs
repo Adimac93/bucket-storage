@@ -13,6 +13,7 @@ use rand::thread_rng;
 use serde_json::json;
 use sqlx::{PgPool, query};
 use sqlx::types::Uuid;
+use tracing::debug;
 use crate::AppState;
 use crate::errors::AppError;
 
@@ -137,6 +138,7 @@ fn decode(input: &str) -> Result<Credentials, AppError> {
         .map_err(|_| AppError::expected(StatusCode::BAD_REQUEST, "Unprocessable characters"))?;
 
     if let Some((id, password)) = decoded.split_once(':') {
+        debug!("{id} {password}");
         let id = Uuid::parse_str(id)
             .map_err(|_| AppError::expected( StatusCode::BAD_REQUEST, "Key id is not of a type UUID"))?;
         return Ok(Credentials::new(id, password.to_owned()));
