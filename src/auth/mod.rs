@@ -24,7 +24,8 @@ pub fn router() -> Router<AppState> {
         .route("/key/verify", get(verify_key))
 }
 
-async fn verify_key(_claims: Claims) -> impl IntoResponse {
+async fn verify_key(claims: Claims) -> impl IntoResponse {
+    debug!("Verified key with access to bucket: {}", claims.bucket_id);
     "Authorized access"
 }
 
@@ -46,6 +47,7 @@ async fn issue_key(State(pool): State<PgPool>) -> Result<impl IntoResponse, AppE
     "#, ArgonHash::hash(&key)?, bucket_id).fetch_one(&mut transaction).await?.id;
 
     transaction.commit().await?;
+    debug!("Issued new bucket key");
     Ok(Json(json!({"id": key_id, "key": key})))
 }
 

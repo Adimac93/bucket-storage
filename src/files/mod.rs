@@ -30,12 +30,12 @@ pub fn router() -> Router<AppState> {
 
 #[debug_handler]
 async fn download(claims: Claims, State(pool): State<PgPool>, Path(file_id): Path<Uuid>) -> Result<impl IntoResponse, AppError> {
+    debug!("Downloading {file_id} from bucket: {}", claims.bucket_id);
     let res = query!(r#"
-    SELECT bucket_files.name, extension
-    FROM buckets
-    JOIN bucket_files ON bucket_files.bucket_id = buckets.id
+    SELECT name, extension
+    FROM bucket_files
     JOIN files ON files.id = bucket_files.file_id
-    WHERE buckets.id = $1 AND files.id = $2
+    WHERE bucket_id = $1 AND file_id = $2
     "#, claims.bucket_id, file_id).fetch_optional(&pool).await?.ok_or(AppError::expected(StatusCode::NO_CONTENT, "File not found"))?;
 
     let file = Store::new().read(&StoreFile::new(file_id, res.extension.clone())).await?;
@@ -216,6 +216,10 @@ async fn save_multipart(pool: &PgPool, mut multipart: Multipart, bucket_id: Uuid
 
         if let Some(file) = file {
             debug!("Matching file checksum");
+            query!(r#"
+            INSERT INTO bucket_files (name, bucket_id, file_id)
+            VALUES ($1, $2, $3)
+            "#, name, bucket_id, file.id).execute(&mut transaction).await?;
             file_ids.push(file.id);
             continue
         }
@@ -234,6 +238,6 @@ async fn save_multipart(pool: &PgPool, mut multipart: Multipart, bucket_id: Uuid
         file_ids.push(file_id);
     }
     transaction.commit().await?;
-    debug!("{file_ids:#?}");
+    debug!("Saved files ids: {file_ids:#?}");
     Ok(file_ids)
 }
